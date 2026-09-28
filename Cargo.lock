@@ -244,7 +244,7 @@ checksum = "ba92c8f4591bf29f89716b45e5f5f56577adbb81426e5620c6e994da7c88bb7a"
 
 [[package]]
 name = "fido2-cred-manager"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "ctap-hid-fido2",
