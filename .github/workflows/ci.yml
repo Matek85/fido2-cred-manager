@@ -1,0 +1,107 @@
+name: CI
+
+# Runs on every push to main and on every pull request:
+#   1. "check": formatting, Clippy and tests
+#   2. "build": release builds for Linux, Windows and macOS, uploaded as
+#      workflow artifacts so you can download and try them from the run page
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The workflow only needs to read the repository.
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR cancels the older, still running CI run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is linted too on purpose: platform.rs contains
+        # Windows-only code that no other runner ever compiles.
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # hidapi needs libudev and pkg-config to compile on Linux
+      # (build time only, see README).
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked
+
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+          # Apple Silicon (the macos-latest runner is arm64).
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+          # Intel Macs, cross-compiled on the same arm64 runner.
+          - name: macos-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build (release)
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: fido2-cred-manager-${{ matrix.name }}
+          path: target/${{ matrix.target }}/release/fido2-cred-manager${{ matrix.ext }}
+          if-no-files-found: error

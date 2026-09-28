@@ -1,0 +1,163 @@
+name: Release
+
+# Triggered by pushing a version tag, e.g.:
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#
+# Builds the tool for Linux, Windows and macOS, packages each binary
+# together with the README, and publishes everything (plus a SHA256SUMS.txt
+# file) as a GitHub Release with auto-generated release notes.
+# Tags containing a "-" (e.g. v0.2.0-rc1) are published as pre-releases.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify tag matches Cargo.toml version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Guards against releasing "v1.2.0" while Cargo.toml still says 1.1.0.
+      - name: Compare tag and package version
+        run: |
+          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)".*/\1/')
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Tag version:        $TAG_VERSION"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $CARGO_VERSION in Cargo.toml. Update Cargo.toml (and commit) or use the matching tag."
+            exit 1
+          fi
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+          - name: macos-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+    env:
+      BIN: fido2-cred-manager
+      PKG: fido2-cred-manager-${{ github.ref_name }}-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build (release)
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # Linux/macOS: .tar.gz (keeps the executable permission bit).
+      - name: Package (tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir "$PKG"
+          cp "target/${{ matrix.target }}/release/${BIN}${{ matrix.ext }}" "$PKG/"
+          cp README.md "$PKG/"
+          if [ -f LICENSE ]; then cp LICENSE "$PKG/"; fi
+          tar czf "$PKG.tar.gz" "$PKG"
+          echo "ASSET=$PKG.tar.gz" >> "$GITHUB_ENV"
+
+      # Windows: .zip
+      - name: Package (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:PKG | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/$env:BIN${{ matrix.ext }}" $env:PKG
+          Copy-Item README.md $env:PKG
+          if (Test-Path LICENSE) { Copy-Item LICENSE $env:PKG }
+          Compress-Archive -Path $env:PKG -DestinationPath "$env:PKG.zip"
+          "ASSET=$env:PKG.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: fido2-cred-manager-${{ matrix.name }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only this job may write to the repository (create the release).
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download all packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: fido2-cred-manager-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Write release notes header
+        run: |
+          cat > notes.md << 'EOF'
+          Prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon and Intel).
+          Verify downloads against `SHA256SUMS.txt`.
+
+          **Notes**
+          - **Windows:** the tool needs administrator rights and shows a UAC prompt on start.
+          - **macOS:** the binaries are not signed or notarized. If Gatekeeper blocks a downloaded binary, run `xattr -d com.apple.quarantine ./fido2-cred-manager` once.
+          - **Linux:** built on the latest Ubuntu runner, so very old distributions with an older glibc may not run it; build from source there.
+          EOF
+
+      - name: Create release
+        run: |
+          FLAGS=""
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then FLAGS="--prerelease"; fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --generate-notes \
+            --verify-tag \
+            $FLAGS
