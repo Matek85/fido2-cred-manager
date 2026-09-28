@@ -1,6 +1,6 @@
 [package]
 name = "fido2-cred-manager"
-version = "v0.2.0"
+version = "v0.2.1"
 edition = "2021"
 
 [dependencies]
