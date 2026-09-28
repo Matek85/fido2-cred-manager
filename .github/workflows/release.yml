@@ -118,8 +118,10 @@ jobs:
         run: |
           mkdir "$PKG"
           cp "target/${{ matrix.target }}/release/${BIN}${{ matrix.ext }}" "$PKG/"
-          cp README.md "$PKG/"
-          if [ -f LICENSE ]; then cp LICENSE "$PKG/"; fi
+          # Match README/LICENSE files case-insensitively (Readme.md, license.txt,
+          # ...): the Linux runner is case-sensitive, so a fixed "README.md"
+          # would fail if the file is committed under a different spelling.
+          find . -maxdepth 1 -type f \( -iname 'readme*' -o -iname 'license*' \) -exec cp {} "$PKG/" \;
           tar czf "$PKG.tar.gz" "$PKG"
           echo "ASSET=$PKG.tar.gz" >> "$GITHUB_ENV"
 
@@ -130,8 +132,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path $env:PKG | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/$env:BIN${{ matrix.ext }}" $env:PKG
-          Copy-Item README.md $env:PKG
-          if (Test-Path LICENSE) { Copy-Item LICENSE $env:PKG }
+          # Same case-insensitive README/LICENSE matching as on Linux/macOS.
+          Get-ChildItem -File | Where-Object { $_.Name -match '^(?i)(readme|license)' } | Copy-Item -Destination $env:PKG
           Compress-Archive -Path $env:PKG -DestinationPath "$env:PKG.zip"
           "ASSET=$env:PKG.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
