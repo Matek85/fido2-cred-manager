@@ -32,7 +32,14 @@ jobs:
       - name: Compare tag and package version
         run: |
           if [ ! -f Cargo.toml ]; then
-            echo "::error::No Cargo.toml in the repository root. Repository root contains:"
+            # Linux is case-sensitive, Windows is not: a file committed as
+            # "cargo.toml" works locally on Windows but is not found here.
+            WRONG_CASE=$(find . -maxdepth 1 -iname 'cargo.toml' | head -n 1)
+            if [ -n "$WRONG_CASE" ]; then
+              echo "::error::Found '$WRONG_CASE' but the file must be named exactly 'Cargo.toml' (capital C). Rename it with a two-step git mv: git mv cargo.toml cargo.tmp && git mv cargo.tmp Cargo.toml"
+            else
+              echo "::error::No Cargo.toml in the repository root. Repository root contains:"
+            fi
             ls -la
             exit 1
           fi
@@ -42,6 +49,20 @@ jobs:
           echo "Tag version:        $TAG_VERSION"
           if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match version $CARGO_VERSION in Cargo.toml. Update Cargo.toml (and commit) or use the matching tag."
+            exit 1
+          fi
+
+      # `cargo build --locked` (used below) fails with a cryptic message if
+      # Cargo.lock is missing or stale. Check it early and explain the fix.
+      - name: Verify Cargo.lock is committed and up to date
+        run: |
+          if [ ! -f Cargo.lock ]; then
+            echo "::error::Cargo.lock is not in the repository. Run 'cargo build' locally, then commit it: git add Cargo.lock"
+            exit 1
+          fi
+          if ! cargo metadata --locked --format-version 1 > /dev/null 2> lock_error.txt; then
+            cat lock_error.txt
+            echo "::error::Cargo.lock does not match Cargo.toml (typical after bumping the version). Run 'cargo build' locally, then commit the updated Cargo.lock."
             exit 1
           fi
 

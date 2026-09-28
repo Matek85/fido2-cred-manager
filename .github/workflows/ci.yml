@@ -35,6 +35,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # `cargo build --locked` (used below) fails with a cryptic message if
+      # Cargo.lock is missing or stale. Check it early and explain the fix.
+      - name: Verify Cargo.lock is committed and up to date
+        if: runner.os == 'Linux'
+        run: |
+          if [ ! -f Cargo.lock ]; then
+            echo "::error::Cargo.lock is not in the repository. Run 'cargo build' locally, then commit it: git add Cargo.lock"
+            exit 1
+          fi
+          if ! cargo metadata --locked --format-version 1 > /dev/null 2> lock_error.txt; then
+            cat lock_error.txt
+            echo "::error::Cargo.lock does not match Cargo.toml (typical after bumping the version). Run 'cargo build' locally, then commit the updated Cargo.lock."
+            exit 1
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
