@@ -1,18 +1,19 @@
 name: Release
 
 # Triggered by pushing a version tag, e.g.:
-#   git tag v0.1.0
-#   git push origin v0.1.0
+#   git tag 0.1.0
+#   git push origin 0.1.0
 #
 # Builds the tool for Linux, Windows and macOS, packages each binary
 # together with the README, and publishes everything (plus a SHA256SUMS.txt
 # file) as a GitHub Release with auto-generated release notes.
-# Tags containing a "-" (e.g. v0.2.0-rc1) are published as pre-releases.
+# Tags containing a "-" (e.g. 0.2.0-rc1) are published as pre-releases.
+# Tags are plain versions WITHOUT a leading "v".
 
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "[0-9]+.[0-9]+.[0-9]+*"
 
 permissions:
   contents: read
@@ -27,11 +28,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Guards against releasing "v1.2.0" while Cargo.toml still says 1.1.0.
+      # Guards against releasing tag "1.2.0" while Cargo.toml still says 1.1.0.
       - name: Compare tag and package version
         run: |
+          if [ ! -f Cargo.toml ]; then
+            echo "::error::No Cargo.toml in the repository root. Repository root contains:"
+            ls -la
+            exit 1
+          fi
           CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)".*/\1/')
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="$GITHUB_REF_NAME"
           echo "Cargo.toml version: $CARGO_VERSION"
           echo "Tag version:        $TAG_VERSION"
           if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
