@@ -1,0 +1,21 @@
+[package]
+name = "fido2-cred-manager"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# CTAP2/FIDO2 HID library: talks to the plugged-in security key over USB HID
+# and implements the authenticatorCredentialManagement command (list/delete
+# resident credentials).
+ctap-hid-fido2 = "3.5"
+# Reads the PIN from the terminal without echoing it to the screen.
+rpassword = "7"
+# General-purpose error handling (Result<(), anyhow::Error> with the `?` operator).
+anyhow = "1"
+
+[build-dependencies]
+# Embeds a Windows application manifest at build time. On non-Windows hosts
+# this crate itself still compiles fine (it just checks CARGO_CFG_WINDOWS at
+# build-script runtime and does nothing there), so it's safe to keep this in
+# the normal [build-dependencies] table rather than a target-gated one.
+embed-manifest = "1.5"

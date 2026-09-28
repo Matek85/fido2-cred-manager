@@ -1,0 +1,26 @@
+# Build-Artefakte (Cargo)
+/target
+
+# Cargo.lock bewusst NICHT ignoriert: bei einem Binary-Projekt (wie diesem)
+# soll die Lock-Datei mit eingecheckt werden, damit jeder Build exakt
+# dieselben Abhängigkeitsversionen verwendet. Nur bei einer Library würde
+# man sie üblicherweise ignorieren.
+
+# Editor-/IDE-Ordner
+.vscode/
+.idea/
+*.iml
+
+# rust-analyzer
+/target/rust-analyzer
+
+# Betriebssystem-Müll
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Debug-Symbole (Windows, falls außerhalb von /target erzeugt)
+*.pdb
+
+# Lokale Umgebungsdateien, falls mal welche dazukommen
+.env
